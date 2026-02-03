@@ -2,74 +2,65 @@ import streamlit as st
 import asyncio
 import edge_tts
 import os
-# DOCX फाइल पढ़ने के लिए लाइब्रेरी (इसे requirements.txt में डालना होगा)
-from docx import Document
+import re
 
-# पेज का टाइटल
-st.set_page_config(page_title="AI Voiceover Generator", page_icon="🎙️")
-st.title("🎙️ Text-to-Speech Converter (Madhur/Swara)")
+st.set_page_config(page_title="Dual Voice AI Studio", page_icon="🎙️")
+st.title("🎙️ Multi-Voice Generator (Madhur & Swara)")
 
-# --- साइडबार (सेटिंग्स) ---
+st.markdown("""
+**Instructions:** - मेल आवाज़ के लिए लाइन के शुरू में **[M]** लिखें।
+- फीमेल आवाज़ के लिए लाइन के शुरू में **[F]** लिखें।
+- रफ़्तार (Speed) के लिए साइडबार का इस्तेमाल करें।
+""")
+
+# --- Sidebar Settings ---
 st.sidebar.header("Voice Settings")
-gender = st.sidebar.radio("आवाज़ चुनें:", ["Male (Madhur)", "Female (Swara)"])
-rate = st.sidebar.slider("Speed (रफ़्तार):", -50, 50, 10)
-pitch = st.sidebar.slider("Pitch (गहराई):", -20, 20, 0)
+speed = st.sidebar.slider("Speed (%)", -50, 50, 15)
+rate_str = f"{speed:+d}%"
 
-# आवाज़ का कोड सेट करना
-voice = "hi-IN-MadhurNeural" if "Male" in gender else "hi-IN-SwaraNeural"
-rate_str = f"{rate:+d}%"
-pitch_str = f"{pitch:+d}Hz"
+# --- Logic for Dual Voice ---
+async def generate_dual_voice(script_text, output_file):
+    final_audio = b""
+    # लाइन दर लाइन स्क्रिप्ट को पढ़ना
+    lines = script_text.strip().split('\n')
+    
+    for line in lines:
+        if line.startswith("[M]"):
+            voice = "hi-IN-MadhurNeural"
+            clean_text = line.replace("[M]", "").strip()
+        elif line.startswith("[F]"):
+            voice = "hi-IN-SwaraNeural"
+            clean_text = line.replace("[F]", "").strip()
+        else:
+            # अगर कुछ नहीं लिखा तो Default Madhur
+            voice = "hi-IN-MadhurNeural"
+            clean_text = line.strip()
 
-# --- इनपुट सेक्शन ---
-tab1, tab2 = st.tabs(["📝 Write Text", "📂 Upload File"])
+        if clean_text:
+            communicate = edge_tts.Communicate(clean_text, voice, rate=rate_str)
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    final_audio += chunk["data"]
 
-final_text = ""
+    with open(output_file, "wb") as f:
+        f.write(final_audio)
 
-with tab1:
-    user_text = st.text_area("अपना टेक्स्ट यहाँ लिखें:", height=200)
-    if user_text:
-        final_text = user_text
+# --- Input Section ---
+user_script = st.text_area("अपनी बातचीत वाली स्क्रिप्ट यहाँ लिखें:", 
+placeholder="[M] नमस्ते, आज हम इतिहास पढ़ेंगे।\n[F] जी सर, शुरू करते हैं।",
+height=300)
 
-with tab2:
-    uploaded_file = st.file_uploader("TXT या DOCX फाइल उपलोड करें", type=["txt", "docx"])
-    if uploaded_file is not None:
-        if uploaded_file.name.endswith(".txt"):
-            final_text = uploaded_file.read().decode("utf-8")
-        elif uploaded_file.name.endswith(".docx"):
-            doc = Document(uploaded_file)
-            final_text = "\n".join([para.text for para in doc.paragraphs])
-        st.success("फाइल पढ़ ली गई है!")
-        with st.expander("टेक्स्ट देखें"):
-            st.write(final_text)
-
-# --- वॉइस जनरेट करने का फंक्शन ---
-async def text_to_speech(text, output_file):
-    communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
-    await communicate.save(output_file)
-
-# --- बटन ---
-if st.button("🔊 Generate Voiceover"):
-    if not final_text.strip():
-        st.warning("कृपया पहले कुछ टेक्स्ट लिखें या फाइल अपलोड करें।")
+if st.button("🔊 Generate Master Voiceover"):
+    if not user_script.strip():
+        st.error("कृपया स्क्रिप्ट लिखें!")
     else:
-        with st.spinner("ऑडियो बन रहा है... कृपया इंतज़ार करें..."):
-            output_file = "generated_audio.mp3"
+        with st.spinner("दोनों आवाजों को मिक्स किया जा रहा है..."):
+            output_mp3 = "dual_voiceover.mp3"
             try:
-                # Async फंक्शन को रन करना
-                asyncio.run(text_to_speech(final_text, output_file))
-                
-                # ऑडियो प्लेयर दिखाना
-                st.audio(output_file)
-                
-                # डाउनलोड बटन
-                with open(output_file, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Download MP3",
-                        data=f,
-                        file_name="voiceover.mp3",
-                        mime="audio/mp3"
-                    )
-                st.success("सफलतापूर्वक हो गया!")
-                
+                asyncio.run(generate_dual_voice(user_script, output_mp3))
+                st.audio(output_mp3)
+                with open(output_mp3, "rb") as f:
+                    st.download_button("⬇️ Download Full Conversation", f, file_name="ai_conversation.mp3")
+                st.success("तैयार है!")
             except Exception as e:
                 st.error(f"Error: {e}")
