@@ -2,8 +2,11 @@ import streamlit as st
 import asyncio
 import edge_tts
 import time
+import io
+# Docx फाइल पढ़ने के लिए
+from docx import Document
 
-# --- Page Configuration (Professional UI) ---
+# --- 1. Page Configuration (Browser Tab Name & Icon) ---
 st.set_page_config(
     page_title="Mohit's AI Voiceover",
     page_icon="🎙️",
@@ -11,186 +14,218 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom CSS for Best Look ---
+# --- 2. Custom CSS for "Professional Website Look" ---
 st.markdown("""
 <style>
-    .main {
-        background-color: #f5f7f9;
+    /* Main Background */
+    .stApp {
+        background: linear-gradient(to right, #f8f9fa, #e9ecef);
     }
+    
+    /* Header Styling */
     h1 {
-        color: #1e3a8a;
+        color: #1a202c;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         text-align: center;
-        font-family: 'Helvetica', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-weight: 700;
+        margin-bottom: 20px;
     }
+    
+    /* Custom Card Containers */
+    .css-1r6slb0 {
+        background-color: white;
+        border-radius: 15px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Professional Button */
     .stButton>button {
         width: 100%;
-        background-color: #2563eb;
+        background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
         color: white;
+        border: none;
+        padding: 12px 24px;
+        font-size: 18px;
+        font-weight: 600;
         border-radius: 8px;
-        height: 50px;
-        font-weight: bold;
+        cursor: pointer;
+        transition: transform 0.2s;
     }
+    .stButton>button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 5px 15px rgba(37, 99, 235, 0.4);
+    }
+
+    /* Progress Bar Color */
     .stProgress > div > div > div > div {
-        background-color: #2563eb;
+        background-color: #10b981;
     }
-    .status-box {
-        padding: 10px;
-        border-radius: 5px;
-        background-color: #e0f2fe;
-        color: #0369a1;
+    
+    /* Status Text */
+    .status-text {
+        font-size: 16px;
+        color: #4b5563;
+        font-weight: 500;
         text-align: center;
-        margin-bottom: 10px;
+        margin-top: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
+# --- 3. Header Section ---
 st.title("🎙️ Mohit's AI Voiceover Studio")
+st.markdown("<p style='text-align: center; color: #4b5563;'>Professional Text-to-Speech Converter with Dual Voice Technology</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- Sidebar Controls ---
+# --- 4. Sidebar (Settings) ---
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.image("https://cdn-icons-png.flaticon.com/512/4712/4712109.png", width=80)
+    st.header("⚙️ Control Panel")
     
-    # 1. Mode Selection
+    # Mode Selection
+    st.subheader("Select Style")
     mode = st.radio(
-        "Select Mode:",
-        ("🗣️ Conversational Style (Male & Female)", "🎤 Normal Mode (Male Only)")
+        "Choose Mode:",
+        ("🗣️ Conversational (Male + Female)", "🎤 Normal (Male Only - Documentary)"),
+        help="Conversational mode detects [M] and [F] tags."
     )
     
     st.markdown("---")
     
-    # 2. Audio Settings
-    speed = st.slider("Speed (गति)", -50, 50, 10, help="Positive values make it faster.")
-    pitch = st.slider("Pitch (पिच)", -20, 20, 0, help="Adjust voice depth.")
+    # Voice Settings
+    st.subheader("Audio Settings")
+    speed = st.slider("Speed (गति)", -50, 50, 10)
+    pitch = st.slider("Pitch (पिच)", -20, 20, 0)
     
     rate_str = f"{speed:+d}%"
     pitch_str = f"{pitch:+d}Hz"
     
-    st.info("💡 **Tip:** Conversational mode requires [M] and [F] tags.")
+    st.info("💡 **Tip:** Upload a script or write directly to generate professional audio.")
 
-# --- Logic Functions ---
+# --- 5. Main Logic Functions ---
 
-async def generate_audio_stream(text, voice, output_file):
-    """Simple generation for Normal Mode"""
-    communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
-    await communicate.save(output_file)
+def read_file(uploaded_file):
+    """Reads TXT or DOCX files"""
+    if uploaded_file.name.endswith(".txt"):
+        return uploaded_file.read().decode("utf-8")
+    elif uploaded_file.name.endswith(".docx"):
+        doc = Document(uploaded_file)
+        return "\n".join([para.text for para in doc.paragraphs])
+    return ""
 
-async def generate_conversational_audio(script, output_file, progress_bar, status_text):
-    """Complex generation with Progress Bar for Conversational Mode"""
+async def generate_audio(text, output_file, progress_bar, status_text):
+    """Generates Audio with Progress Bar"""
     final_audio = b""
-    lines = [line for line in script.strip().split('\n') if line.strip()]
+    
+    # Split text into lines for processing
+    lines = [line for line in text.strip().split('\n') if line.strip()]
     total_lines = len(lines)
     
     start_time = time.time()
     
     for i, line in enumerate(lines):
-        # Update Progress
-        progress_percent = (i + 1) / total_lines
-        progress_bar.progress(progress_percent)
-        elapsed_time = round(time.time() - start_time, 1)
-        status_text.markdown(f"**Processing Line {i+1}/{total_lines}** ({int(progress_percent*100)}%) - ⏱️ {elapsed_time}s")
+        # Update Progress Bar
+        percent = (i + 1) / total_lines
+        progress_bar.progress(percent)
+        
+        elapsed = round(time.time() - start_time, 1)
+        status_text.markdown(f"<p class='status-text'>Processing Line {i+1} of {total_lines} ({int(percent*100)}%) - ⏱️ {elapsed}s</p>", unsafe_allow_html=True)
 
-        # Determine Voice
-        if mode.startswith("🗣️") and line.startswith("[F]"):
-            voice = "hi-IN-SwaraNeural"
-            clean_text = line.replace("[F]", "").strip()
-        elif mode.startswith("🗣️") and line.startswith("[M]"):
+        # Logic for Voice Selection
+        if mode.startswith("🗣️"): # Conversational
+            if line.startswith("[F]"):
+                voice = "hi-IN-SwaraNeural"
+                clean_text = line.replace("[F]", "").strip()
+            elif line.startswith("[M]"):
+                voice = "hi-IN-MadhurNeural"
+                clean_text = line.replace("[M]", "").strip()
+            else:
+                voice = "hi-IN-MadhurNeural" # Default if no tag
+                clean_text = line.strip()
+        else: # Normal Mode
             voice = "hi-IN-MadhurNeural"
-            clean_text = line.replace("[M]", "").strip()
-        else:
-            voice = "hi-IN-MadhurNeural" # Default to Male
             clean_text = line.strip()
 
         # Generate Chunk
         if clean_text:
-            communicate = edge_tts.Communicate(clean_text, voice, rate=rate_str, pitch=pitch_str)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    final_audio += chunk["data"]
+            try:
+                communicate = edge_tts.Communicate(clean_text, voice, rate=rate_str, pitch=pitch_str)
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        final_audio += chunk["data"]
+            except Exception as e:
+                st.error(f"Error on line {i+1}: {e}")
 
-    # Save Final File
+    # Save File
     with open(output_file, "wb") as f:
         f.write(final_audio)
-    
+        
     return time.time() - start_time
 
-# --- Main Interface ---
+# --- 6. Interface (Tabs) ---
+tab1, tab2 = st.tabs(["📝 Write Script", "📂 Upload File"])
 
-col1, col2 = st.columns([2, 1])
+final_input_text = ""
 
-with col1:
-    if mode.startswith("🗣️"):
-        st.subheader("Dual Voice Scripting")
-        user_input = st.text_area(
-            "Enter Script (Use [M] for Male, [F] for Female):", 
-            height=300,
-            placeholder="[F] नमस्ते दोस्तों!\n[M] स्वागत है आपका Mohit's AI Voiceover में।\n[F] यह कितना आसान है!"
-        )
+with tab1:
+    placeholder_text = "[M] नमस्ते दोस्तों!\n[F] स्वागत है Mohit's AI Studio में।\n[M] यहाँ आप फाइल अपलोड करके भी ऑडियो बना सकते हैं।" if mode.startswith("🗣️") else "अपना डॉक्यूमेंट्री टेक्स्ट यहाँ लिखें..."
+    text_input = st.text_area("Type your content here:", height=250, placeholder=placeholder_text)
+    if text_input:
+        final_input_text = text_input
+
+with tab2:
+    uploaded_file = st.file_uploader("Upload Script (.txt or .docx)", type=["txt", "docx"])
+    if uploaded_file:
+        file_content = read_file(uploaded_file)
+        st.success(f"✅ File Loaded: {uploaded_file.name}")
+        with st.expander("👀 Preview File Content"):
+            st.text_area("Content", file_content, height=150)
+        final_input_text = file_content
+
+# --- 7. Execution Section ---
+st.markdown("<br>", unsafe_allow_html=True)
+
+if st.button("🚀 GENERATE VOICEOVER"):
+    if not final_input_text.strip():
+        st.warning("⚠️ Please enter text or upload a file first!")
     else:
-        st.subheader("Single Voice Scripting")
-        user_input = st.text_area(
-            "Enter Text (Uses Male Voice 'Madhur'):", 
-            height=300,
-            placeholder="यहां अपना टेक्स्ट लिखें। यह एक ही आवाज में रिकॉर्ड होगा..."
-        )
-
-with col2:
-    st.markdown("<br><br>", unsafe_allow_html=True) # Spacing
-    st.markdown("### Preview & Export")
-    
-    generate_btn = st.button("🚀 Generate Audio", key="gen_btn")
-    
-    # Placeholders for progress
-    status_area = st.empty()
-    progress_area = st.empty()
-    result_area = st.empty()
-
-# --- Execution Logic ---
-if generate_btn and user_input:
-    output_file = "mohit_voiceover.mp3"
-    
-    try:
-        # Progress Bar Initialization
-        progress_bar = progress_area.progress(0)
-        status_text = status_area.markdown("**Starting engine...**")
+        output_filename = "mohit_final_audio.mp3"
         
-        # Run Generation
-        if mode.startswith("🗣️"):
-            # Conversational
-            duration = asyncio.run(generate_conversational_audio(user_input, output_file, progress_bar, status_text))
-        else:
-            # Normal Mode (Fake progress for UX since it's one stream)
-            status_text.markdown("**Processing... (Please wait)**")
-            progress_bar.progress(50)
-            start_t = time.time()
-            asyncio.run(generate_audio_stream(user_input, "hi-IN-MadhurNeural", output_file))
-            progress_bar.progress(100)
-            duration = time.time() - start_t
-
-        # Success Message
-        status_text.empty()
-        progress_area.empty()
+        # UI Elements for Progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        st.success(f"✅ Done in {round(duration, 2)} seconds!")
-        
-        # Audio Player & Download
-        st.audio(output_file)
-        
-        with open(output_file, "rb") as f:
-            st.download_button(
-                label="⬇️ Download MP3",
-                data=f,
-                file_name="mohits_voiceover.mp3",
-                mime="audio/mp3"
-            )
-
-    except Exception as e:
-        st.error(f"Error: {e}")
-
-elif generate_btn and not user_input:
-    st.warning("⚠️ Please enter some text first!")
+        try:
+            # Run Async Function
+            duration = asyncio.run(generate_audio(final_input_text, output_filename, progress_bar, status_text))
+            
+            # Success UI
+            status_text.empty()
+            st.success(f"🎉 Audio Generated Successfully in {round(duration, 2)} seconds!")
+            
+            # Audio Player & Download
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.audio(output_filename)
+            with col2:
+                with open(output_filename, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Download MP3",
+                        data=f,
+                        file_name="Mohit_AI_Voiceover.mp3",
+                        mime="audio/mp3"
+                    )
+                    
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
 # --- Footer ---
-st.markdown("---")
-st.markdown("<p style='text-align: center; color: grey;'>Designed by Mohit | Powered by Edge-TTS</p>", unsafe_allow_html=True)
+st.markdown("<br><br><br>", unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align: center; color: #9ca3af; font-size: 12px;">
+    Developed by Mohit | Powered by Edge-TTS & Streamlit
+</div>
+""", unsafe_allow_html=True)
